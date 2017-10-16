@@ -1,0 +1,159 @@
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+  <meta name="author" content="liv@tailless.co.uk">
+  <style>
+  body {
+    margin: 0px;
+    overflow: hidden;
+  }
+  </style>
+</head>
+<body>
+  <div id="container"></div>
+  <script src="js/libs/three.min.js"></script>
+  <!--shaders-->
+  <script id="vertexShader" type="x-shader/x-vertex">
+
+	varying vec2 vUv;
+	//varying vec3 vecPos;
+	//varying vec3 vecNormal;
+
+	void main() {
+		vUv = uv;
+
+		// vecNormal = normalize( worldNormal );,
+
+		vec3 vecPos = (modelViewMatrix * vec4(position, 1.0)).xyz;
+		//vecNormal = (modelViewMatrix * vec4(normal, 0.0)).xyz;
+		gl_Position = projectionMatrix * vec4(vecPos, 1.0);
+	}
+
+	</script>
+
+  <!--pixel displacement-->
+  <script id="fragmentShader" type="x-shader/x-fragment">
+
+  precision highp float;
+
+  varying vec2 vUv;
+//  varying vec3 vecPos;
+  varying vec3 vecNormal;
+
+  uniform vec2 u_resolution;
+  uniform vec2 u_mouse;
+  uniform float u_time;
+
+  uniform sampler2D u_tDisplacement;
+  uniform sampler2D u_tImage;
+
+    void main(){
+
+    const float AMOUNT = 0.8;
+
+    vec2 position = vUv;
+
+    vec2 p2 = position + vec2(u_time/60.0);
+
+    //with noise texture rb value
+    position += (texture2D(u_tDisplacement, p2).rb - vec2(.5)) * AMOUNT;
+
+    vec3 color = texture2D( u_tImage, position ).rgb;
+    gl_FragColor = vec4(color,1.0);
+}
+
+  </script>
+
+  <!--end shaders-->
+
+  <script>
+  var container;
+  var camera, scene, renderer;
+  var uniforms;
+
+  var clock = new THREE.Clock();
+
+  init();
+  animate();
+
+  function init() {
+
+    container = document.getElementById( 'container' );
+
+    //create camera
+    camera = new THREE.PerspectiveCamera( 90, window.innerWidth / window.innerHeight, 1, 1000 );
+    //camera.position.z = -40;
+
+    scene = new THREE.Scene();
+
+    var texture_displacement = new THREE.TextureLoader().load( 'textures/disturb.jpg' );
+    texture_displacement.wrapS = texture_displacement.wrapT = THREE.RepeatWrapping;
+
+    var texture_image = new THREE.TextureLoader().load( 'textures/selma.jpg' );
+
+
+    uniforms = {
+      u_time: { type: "f", value: 1.0 },
+      u_resolution: { type: "v2", value: new THREE.Vector2() },
+      u_mouse: { type: "v2", value: new THREE.Vector2() },
+      u_tDisplacement : { type: "t", value: texture_displacement },
+      u_tImage: { type: "t", value: texture_image }
+    };
+
+
+    var geometry = new THREE.SphereBufferGeometry( 500, 60, 40 );
+  	geometry.scale( - 1, 1, 1 );
+
+    var material = new THREE.ShaderMaterial( {
+        uniforms: uniforms,
+        vertexShader: document.getElementById( 'vertexShader' ).textContent,
+        fragmentShader: document.getElementById( 'fragmentShader' ).textContent
+      } );
+
+  	panoramicSphere = new THREE.Mesh( geometry, material );
+  	panoramicSphere.matrixAutoUpdate = false;
+  	scene.add( panoramicSphere );
+
+
+    renderer = new THREE.WebGLRenderer();
+    renderer.setPixelRatio( window.devicePixelRatio );
+
+    document.body.appendChild( renderer.domElement );
+
+    onWindowResize();
+    window.addEventListener( 'resize', onWindowResize, false );
+
+    document.onmousemove = function(e){
+      //camera.position.x = (e.pageX ) * -1.;
+      uniforms.u_mouse.value.x = e.pageX
+      uniforms.u_mouse.value.y = e.pageY
+    }
+  }
+
+  function onWindowResize( event ) {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+
+    renderer.setSize( window.innerWidth, window.innerHeight );
+
+    uniforms.u_resolution.value.x = renderer.domElement.width;
+    uniforms.u_resolution.value.y = renderer.domElement.height;
+  }
+
+  function animate() {
+    renderer.animate( render );
+
+  }
+
+  function render() {
+    var delta = clock.getDelta();
+    uniforms.u_time.value += 0.05;
+
+    //uniforms.u_time.value += delta * 5;
+    //uniforms.u_time.value = clock.elapsedTime;
+
+    renderer.render( scene, camera );
+  }
+  </script>
+</body>

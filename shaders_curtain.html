@@ -1,0 +1,226 @@
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+  <meta name="author" content="liv@tailless.co.uk">
+  <style>
+  body {
+    margin: 0px;
+    overflow: hidden;
+  }
+  </style>
+</head>
+<body>
+  <div id="container"></div>
+  <script src="js/libs/three.min.js"></script>
+  <!--shaders-->
+  <script id="vertexShader" type="x-shader/x-vertex">
+  void main() {
+    gl_Position = vec4( position, 1.0 );
+  }
+  </script>
+
+  <!--simple gradiant-->
+  <script id="fragmentShaderGradiant" type="x-shader/x-fragment">
+  uniform vec2 u_resolution;
+  uniform float u_time;
+
+  void main() {
+    vec2 st = gl_FragCoord.xy/u_resolution.xy;
+    gl_FragColor=vec4(st.x,st.y,0.0,1.0);
+  }
+  </script>
+
+  <!--curtain-->
+  <script id="fragmentShader" type="x-shader/x-fragment">
+
+  uniform vec2 u_resolution;
+  uniform vec2 u_mouse;
+  uniform float u_time;
+
+
+  float wrap(float x) {
+    return abs(mod(x, 2.)-1.);
+  }
+
+  float sineWave(float x, float amount) {
+    return (sin(x * amount) + 1.) * .5;
+  }
+
+
+  void main() {
+
+    vec2 position = gl_FragCoord.xy/u_resolution.xy;
+    vec2 p = (position - 0.5) * 22.;
+
+    float mouseDist = distance(vec2(u_mouse/u_resolution), vec2(0.5));
+
+    float brightness = 0.;
+    for (float i = 1.; i <= 5.; i++) {
+      brightness += sineWave(p.x, mouseDist * 100. / i);
+    }
+
+    brightness = wrap(brightness);
+
+    vec3 col = vec3( 0.5, position); // nice colour range pink -> green
+    gl_FragColor = vec4( (vec3(col) * brightness), 1. ) ;
+
+  }
+  </script>
+
+  <!--noise-->
+  <script id="fragmentShaderNoise" type="x-shader/x-fragment">
+  precision mediump float;
+
+  uniform vec2 u_resolution;
+  uniform float u_time;
+
+  float random(float p) {
+    return fract(sin(p)*10000.);
+  }
+
+  float noise(vec2 p) {
+    return random(p.x + p.y*10000.);
+  }
+
+  vec2 sw(vec2 p) {return vec2( floor(p.x) , floor(p.y) );}
+  vec2 se(vec2 p) {return vec2( ceil(p.x)  , floor(p.y) );}
+  vec2 nw(vec2 p) {return vec2( floor(p.x) , ceil(p.y)  );}
+  vec2 ne(vec2 p) {return vec2( ceil(p.x)  , ceil(p.y)  );}
+
+  float smoothNoise(vec2 p) {
+    vec2 inter = smoothstep(0., 1., fract(p));
+    float s = mix(noise(sw(p)), noise(se(p)), inter.x);
+    float n = mix(noise(nw(p)), noise(ne(p)), inter.x);
+    return mix(s, n, inter.y);
+    return noise(nw(p));
+  }
+
+  float movingNoise(vec2 p) {
+    float total = 0.0;
+    total += smoothNoise(p     - u_time);
+    total += smoothNoise(p*2.  + u_time) / 2.;
+    total += smoothNoise(p*4.  - u_time) / 4.;
+    total += smoothNoise(p*8.  + u_time) / 8.;
+    total += smoothNoise(p*16. - u_time) / 16.;
+    total /= 1. + 1./2. + 1./4. + 1./8. + 1./16.;
+    return total;
+  }
+
+  float nestedNoise(vec2 p) {
+    float x = movingNoise(p);
+    float y = movingNoise(p + 100.);
+    return movingNoise(p + vec2(x, y));
+  }
+
+  void main() {
+    vec2 position = gl_FragCoord.xy/u_resolution.xy;
+    vec2 p = position * 6.;
+    float brightness = nestedNoise(p);
+    gl_FragColor.rgb = vec3(brightness);
+    gl_FragColor.a = 1.;
+  }
+
+  </script>
+
+
+  <script id="fragmentShaderHal" type="x-shader/x-fragment">
+
+  uniform vec2 u_resolution;
+  uniform float u_time;
+
+  void main(){
+
+    vec3 colour;
+    float len, z = u_time;
+
+    float numSpecks = 1.;
+    float lengthOfSpecks = 9.;
+
+    for(int i = 0; i < 3; i++) {
+      vec2 uv, point = gl_FragCoord.xy / u_resolution.xy;
+      uv = point;
+      // get distace from the middle
+      point -= .5;
+      point.x *= u_resolution.x / u_resolution.y;
+
+      // add colour
+      z += .07;
+      len = length(point);
+      uv += point / len * ( sin(z) + numSpecks ) * abs( sin(len * lengthOfSpecks - z * 2.) );
+      colour[i] = .01 / length( abs( mod( uv, 1.) - .5 ) );
+    }
+
+    gl_FragColor = vec4( colour / len, 1.);
+  }
+  </script>
+  <!--end shaders-->
+  <script>
+  var container;
+  var camera, scene, renderer;
+  var uniforms;
+
+  init();
+  animate();
+
+  function init() {
+    container = document.getElementById( 'container' );
+
+    camera = new THREE.Camera();
+    camera.position.z = 1;
+
+    scene = new THREE.Scene();
+
+    var geometry = new THREE.PlaneBufferGeometry( 2, 2 );
+
+    uniforms = {
+      u_time: { type: "f", value: 1.0 },
+      u_resolution: { type: "v2", value: new THREE.Vector2() },
+      u_mouse: { type: "v2", value: new THREE.Vector2() }
+    };
+
+    var material = new THREE.ShaderMaterial( {
+      uniforms: uniforms,
+      vertexShader: document.getElementById( 'vertexShader' ).textContent,
+      fragmentShader: document.getElementById( 'fragmentShader' ).textContent
+    } );
+
+    var mesh = new THREE.Mesh( geometry, material );
+    scene.add( mesh );
+
+    renderer = new THREE.WebGLRenderer();
+    renderer.setPixelRatio( window.devicePixelRatio );
+
+    container.appendChild( renderer.domElement );
+
+    onWindowResize();
+    window.addEventListener( 'resize', onWindowResize, false );
+
+    document.onmousemove = function(e){
+      uniforms.u_mouse.value.x = e.pageX
+      uniforms.u_mouse.value.y = e.pageY
+    }
+  }
+
+  function onWindowResize( event ) {
+    renderer.setSize( window.innerWidth, window.innerHeight );
+    uniforms.u_resolution.value.x = renderer.domElement.width;
+    uniforms.u_resolution.value.y = renderer.domElement.height;
+  }
+
+  function animate() {
+    requestAnimationFrame( animate );
+    render();
+  }
+
+  function render() {
+    uniforms.u_time.value += 0.05;
+    /*
+    var elapsedMilliseconds = Date.now() - startTime;
+    var elapsedSeconds = elapsedMilliseconds / 1000.;
+    uniforms.u_time.value = 60. * elapsedSeconds;
+    */
+    renderer.render( scene, camera );
+  }
+  </script>
+</body>
