@@ -1,0 +1,192 @@
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+  <meta name="author" content="liv@tailless.co.uk">
+  <style>
+  body {
+    margin: 0px;
+    overflow: hidden;
+  }
+  </style>
+</head>
+<body>
+  <div id="container"></div>
+  <script src="js/libs/three.min.js"></script>
+  <!--shaders-->
+  <script id="vertexShader" type="x-shader/x-vertex">
+
+  varying vec2 vUv;
+  //varying vec3 vecPos;
+  //varying vec3 vecNormal;
+
+  void main() {
+    vUv = uv;
+
+    // vecNormal = normalize( worldNormal );,
+
+    vec3 vecPos = (modelViewMatrix * vec4(position, 1.0)).xyz;
+    //vecNormal = (modelViewMatrix * vec4(normal, 0.0)).xyz;
+    gl_Position = projectionMatrix * vec4(vecPos, 1.0);
+  }
+
+  </script>
+
+  <!--pixel displacement-->
+  <script id="fragmentShader" type="x-shader/x-fragment">
+
+  precision highp float;
+
+  varying vec2 vUv;
+  //  varying vec3 vecPos;
+//  varying vec3 vecNormal;
+
+  uniform vec2 u_resolution;
+  uniform vec2 u_mouse;
+  uniform float u_time;
+
+  uniform sampler2D u_tDisplacement;
+  uniform sampler2D u_tImage;
+
+  void main(){
+    // distance from center of image, used to adjust blur
+    //vec2 uv = fragCoord.xy / iResolution.xy;
+    vec2 position = vUv;
+
+    float d = length( position - vec2(0.5,0.5) );
+
+    // blur amount
+    float blur = 0.0;
+    blur = (1.0 + sin( u_time * 6.0 )) * 0.5;
+    blur *= 1.0 + sin( u_time * 16.0 ) * 0.5;
+    blur = pow( blur, 3.0 );
+    blur *= 0.01; //was 0.05
+    // reduce blur towards center
+    blur *= d;
+
+    // final color
+    vec3 color;
+    color.r = texture2D( u_tImage, vec2( position.x + blur, position.y ) ).r;
+    color.g = texture2D( u_tImage, position ).g;
+    color.b = texture2D( u_tImage, vec2( position.x - blur, position.y ) ).b;
+
+    // scanline
+    float scanline = sin( position.y * 800.0 ) * 0.04;
+    color -= scanline;
+
+    // vignette
+    color *= 1.0 - d * 0.5;
+
+    gl_FragColor = vec4(color,1.0);
+  }
+
+  </script>
+
+  <!--end shaders-->
+
+  <script>
+  var container;
+  var camera, scene, renderer;
+  var uniforms;
+
+  var clock = new THREE.Clock();
+
+  init();
+  animate();
+
+  function init() {
+
+    container = document.getElementById( 'container' );
+
+    //create camera
+    camera = new THREE.PerspectiveCamera( 90, window.innerWidth / window.innerHeight, 1, 1000 );
+    camera.position.z = 5;
+
+    scene = new THREE.Scene();
+
+    /*var texture_displacement = new THREE.TextureLoader().load( 'textures/disturb.jpg' );
+    texture_displacement.wrapS = texture_displacement.wrapT = THREE.RepeatWrapping;*/
+
+    var texture_image = new THREE.TextureLoader().load( 'textures/OKAAMI-Web.jpg' );
+
+
+    uniforms = {
+      u_time: { type: "f", value: 1.0 },
+      u_resolution: { type: "v2", value: new THREE.Vector2() },
+      u_mouse: { type: "v2", value: new THREE.Vector2() },
+      //u_tDisplacement : { type: "t", value: texture_displacement },
+      u_tImage: { type: "t", value: texture_image }
+    };
+
+
+    var geometry = new THREE.SphereBufferGeometry( 500, 60, 40 );
+    geometry.scale( - 1, 1, 1 );
+
+    var material = new THREE.ShaderMaterial( {
+      uniforms: uniforms,
+      vertexShader: document.getElementById( 'vertexShader' ).textContent,
+      fragmentShader: document.getElementById( 'fragmentShader' ).textContent
+    } );
+
+    panoramicSphere = new THREE.Mesh( geometry, material );
+    panoramicSphere.rotation.set(0, 250, 0);
+    panoramicSphere.matrixAutoUpdate = true;
+    scene.add( panoramicSphere );
+
+    // plane obj to attach material to
+    /* var planeMaterial = new THREE.ShaderMaterial( {
+      uniforms: uniforms,
+      vertexShader: document.getElementById( 'vertexShader' ).textContent,
+      fragmentShader: document.getElementById( 'fragmentShader' ).textContent
+    } );
+
+    var planeGeometry = new THREE.PlaneBufferGeometry( 2, 2 );
+
+    var bgMesh = new THREE.Mesh( planeGeometry, planeMaterial );
+    bgMesh.position.set( 0, 0, -50 );
+    scene.add( bgMesh );*/
+
+
+
+
+    renderer = new THREE.WebGLRenderer();
+    renderer.setPixelRatio( window.devicePixelRatio );
+
+    document.body.appendChild( renderer.domElement );
+
+    onWindowResize();
+    window.addEventListener( 'resize', onWindowResize, false );
+
+    document.onmousemove = function(e){
+      //camera.position.x = (e.pageX ) * -1.;
+      uniforms.u_mouse.value.x = e.pageX
+      uniforms.u_mouse.value.y = e.pageY
+    }
+  }
+
+  function onWindowResize( event ) {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+
+    renderer.setSize( window.innerWidth, window.innerHeight );
+
+    uniforms.u_resolution.value.x = renderer.domElement.width;
+    uniforms.u_resolution.value.y = renderer.domElement.height;
+  }
+
+  function animate() {
+    renderer.animate( render );
+
+  }
+
+  function render() {
+    var delta = clock.getDelta();
+    uniforms.u_time.value += 0.05;
+
+    //uniforms.u_time.value += delta * 5;
+    //uniforms.u_time.value = clock.elapsedTime;
+
+    renderer.render( scene, camera );
+  }
+  </script>
+</body>
